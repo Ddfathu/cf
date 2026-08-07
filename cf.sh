@@ -65,7 +65,8 @@ login_flow() {
     if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
         echo ""
         read -rp "✉️  Email CF      : " CF_EMAIL
-        read -rsp "🔑 Global API Key: " CF_API_KEY
+        # FLAG -s DIHAPUS BIAR TEKS API KEY KELIATAN PAS DIKETIK / DIPASTE
+        read -rp "🔑 Global API Key: " CF_API_KEY
         echo ""
         read -rp "💾 Simpan kredensial? [y/N]: " SAVE_CHOICE
         if [[ "$SAVE_CHOICE" =~ ^[Yy] ]]; then
