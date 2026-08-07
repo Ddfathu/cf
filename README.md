@@ -36,3 +36,9 @@ Cukup *copy-paste* perintah **One-Line Command** di bawah ini ke aplikasi **Term
 ### 1. Install Library Wajib
 ```bash
 pkg update -y && pkg install bash curl jq openssl git -y
+```bash
+git clone https://github.com/Ddfathu/cf
+
+##Cara menjalankan
+cd cf
+bash cf.sh
