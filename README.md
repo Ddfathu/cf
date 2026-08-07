@@ -44,4 +44,5 @@ git clone https://github.com/Ddfathu/cf
 ```
 ### 3. jalankan script
 cd cf
+
 bash cf.sh
