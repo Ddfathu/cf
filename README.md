@@ -36,6 +36,7 @@ Cukup *copy-paste* perintah **One-Line Command** di bawah ini ke aplikasi **Term
 ### 1. Install Library Wajib
 ```bash
 pkg update -y && pkg install bash curl jq openssl git -y
+```
 
 ### 2. Clone Repository & Jalankan Script
 ```bash
