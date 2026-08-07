@@ -38,8 +38,10 @@ Cukup *copy-paste* perintah **One-Line Command** di bawah ini ke aplikasi **Term
 pkg update -y && pkg install bash curl jq openssl git -y
 ```
 
-### 2. Clone Repository & Jalankan Script
+### 2. Clone Repository
 ```bash
-git clone [https://github.com/Ddfathu/cf](https://github.com/Ddfathu/cf)
+git clone https://github.com/Ddfathu/cf
+```
+### 3. jalankan script
 cd cf
 bash cf.sh
