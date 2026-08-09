@@ -1,4 +1,4 @@
-# MENU_TITLE: 🚀 Kelola Service Worker (Buat / Edit / Hapus)
+# MENU_TITLE: 🚀 Kelola Service Worker (Buat / Edit / Variable / Hapus)
 # MENU_ACTION: run_worker_module
 
 get_js_source_input() {
@@ -83,7 +83,6 @@ deploy_universal_worker() {
 }
 
 run_worker_module() {
-    # DIBUNGKUS LOOP WHILE DIA STAY DI MENU INI
     while true; do
         clear
         echo -e "${CYAN}================================================================${NC}"
@@ -91,10 +90,11 @@ run_worker_module() {
         echo -e "${CYAN}----------------------------------------------------------------${NC}"
         echo -e "  ${CYAN}[1]${NC} 🆕 Buat Worker Baru"
         echo -e "  ${CYAN}[2]${NC} 📝 Edit / Timpa Worker"
-        echo -e "  ${CYAN}[3]${NC} 🗑️  Hapus Worker Permanen"
+        echo -e "  ${CYAN}[3]${NC} 🔑 Tambah Variable (Environment Variable / env)"
+        echo -e "  ${CYAN}[4]${NC} 🗑️  Hapus Worker Permanen"
         echo -e "  ${RED}[0]${NC} ↩️  Kembali ke Menu Utama"
         echo -e "${CYAN}----------------------------------------------------------------${NC}"
-        read -rp "Pilih [1/2/3/0]: " W_CHOICE
+        read -rp "Pilih [1/2/3/4/0]: " W_CHOICE
 
         case "$W_CHOICE" in
             1)
@@ -122,6 +122,44 @@ run_worker_module() {
             3)
                 WORKERS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/accounts/$ACCOUNT_ID/workers/services?per_page=100")
                 echo "$WORKERS_JSON" | jq -r '.result[] | .id' | nl -w2 -s') '
+                read -rp "Pilih Nomor Worker Target [0=Batal]: " W_NUM
+                
+                if [ "$W_NUM" != "0" ] && [ -n "$W_NUM" ]; then
+                    TARGET_WORKER_NAME=$(echo "$WORKERS_JSON" | jq -r ".result[$((W_NUM-1))].id")
+                    
+                    read -rp "🔤 Masukkan Nama Variable (contoh: API_KEY) [0=Batal]: " VAR_NAME
+                    if [ "$VAR_NAME" != "0" ] && [ -n "$VAR_NAME" ]; then
+                        read -rp "💬 Masukkan Isi Value Variable [0=Batal]: " VAR_VALUE
+                        if [ "$VAR_VALUE" != "0" ]; then
+                            echo -e "${YELLOW}⚙️ Menambahkan variable 'env.$VAR_NAME' ke Worker '$TARGET_WORKER_NAME'...${NC}"
+                            
+                            SETTINGS_URL="$BASE_URL/accounts/$ACCOUNT_ID/workers/services/$TARGET_WORKER_NAME/environments/production/settings"
+                            CURRENT_SETTINGS=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$SETTINGS_URL")
+                            EXISTING_BINDINGS=$(echo "$CURRENT_SETTINGS" | jq '.result.bindings // []')
+
+                            NEW_BINDING=$(jq -n --arg name "$VAR_NAME" --arg text "$VAR_VALUE" '{type: "plain_text", name: $name, text: $text}')
+                            UPDATED_BINDINGS=$(echo "$EXISTING_BINDINGS" | jq --argjson new "$NEW_BINDING" --arg name "$VAR_NAME" 'map(select(.name != $name)) + [$new]')
+
+                            METADATA_FILE=$(mktemp)
+                            jq -n --argjson bindings "$UPDATED_BINDINGS" '{bindings: $bindings}' > "$METADATA_FILE"
+                            
+                            UPDATE_RESPONSE=$(curl -s -X PATCH "${AUTH_HEADER[@]}" -F "settings=@$METADATA_FILE;type=application/json" "$SETTINGS_URL")
+                            rm -f "$METADATA_FILE"
+
+                            if echo "$UPDATE_RESPONSE" | jq -e '.success' > /dev/null; then
+                                echo -e "${GREEN}🎉 BERHASIL! Variable 'env.$VAR_NAME' sukses ditambahkan ke Worker '$TARGET_WORKER_NAME'!${NC}"
+                            else
+                                echo -e "${RED}❌ Gagal menambahkan variable:${NC}"
+                                echo "$UPDATE_RESPONSE" | jq -r '.errors[] | "Code: \(.code) - \(.message)"' 2>/dev/null || echo "$UPDATE_RESPONSE"
+                            fi
+                        fi
+                    fi
+                fi
+                read -rp "Tekan Enter untuk kembali ke Sub-Menu..."
+                ;;
+            4)
+                WORKERS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/accounts/$ACCOUNT_ID/workers/services?per_page=100")
+                echo "$WORKERS_JSON" | jq -r '.result[] | .id' | nl -w2 -s') '
                 read -rp "Nomor Worker yang Mau Dihapus [0=Batal]: " W_NUM
                 if [ "$W_NUM" != "0" ] && [ -n "$W_NUM" ]; then
                     TARGET_WORKER_NAME=$(echo "$WORKERS_JSON" | jq -r ".result[$((W_NUM-1))].id")
@@ -134,7 +172,6 @@ run_worker_module() {
                 read -rp "Tekan Enter untuk kembali ke Sub-Menu..."
                 ;;
             0|b|B)
-                # PILIH 0/b UNTUK KEMBALI KE MENU UTAMA SCRIPT
                 break
                 ;;
             *)
