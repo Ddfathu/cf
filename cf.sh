@@ -1,16 +1,23 @@
 #!/bin/bash
 
 #=============================================================
-# Cloudflare Manager Pro (Dynamic Auto-Import Modules v34)
+# Cloudflare Manager Pro (Multi-Account & Auto-Import v35)
+# Banner Updated: CF PROJECT
 #=============================================================
 
 set -e
 
-CONFIG_FILE="$HOME/.cf-worker-kv.conf"
+ACCOUNTS_FILE="$HOME/.cf-accounts.json"
+ACTIVE_ACC_FILE="$HOME/.cf-active-account.json"
 SCCF_DIR="$PWD/SCCF"
 MODULES_DIR="$PWD/modules"
 
 mkdir -p "$SCCF_DIR" "$MODULES_DIR"
+
+# Inisialisasi file akun jika belum ada
+if [ ! -f "$ACCOUNTS_FILE" ]; then
+    echo "[]" > "$ACCOUNTS_FILE"
+fi
 
 # ANSI Color Codes
 RED='\033[1;31m'
@@ -23,81 +30,219 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 if ! command -v jq &> /dev/null; then
-    echo -e "${RED}❌ jq tidak ditemukan. Install dulu: pkg install jq${NC}"
+    echo -e "${RED}❌ jq tidak ditemukan. Install dulu: pkg install jq atau apt install jq${NC}"
     exit 1
 fi
-
-save_credentials() {
-    echo "CF_EMAIL=\"$CF_EMAIL\"" > "$CONFIG_FILE"
-    echo "CF_API_KEY=\"$CF_API_KEY\"" >> "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
-    echo -e "${GREEN}💾 Kredensial disimpan di $CONFIG_FILE${NC}"
-}
 
 draw_banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${PURPLE}   ██████╗██╗     ██████╗ ██╗  ██╗██████╗ ███████╗            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${PURPLE}  ██╔════╝██║    ██╔═══██╗██║  ██║██╔══██╗██╔════╝            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${PURPLE}  ██║     ██║    ██║   ██║██║  ██║██║  ██║█████╗              ${CYAN}║${NC}"
-    echo -e "${CYAN}║${PURPLE}  ██║     ██║    ██║   ██║██║  ██║██║  ██║██╔══╝              ${CYAN}║${NC}"
-    echo -e "${CYAN}║${PURPLE}  ╚██████╗███████╗╚██████╔╝╚█████╔╝██████╔╝███████╗            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${PURPLE}   ╚═════╝╚══════╝ ╚═════╝  ╚════╝ ╚═════╝ ╚══════╝            ${CYAN}║${NC}"
-    echo -e "${CYAN}║${YELLOW}         CLOUDFLARE ENGINE MANAGER v34 (AUTO-IMPORT)          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${PURPLE}    ██████╗███████╗  ██████╗ ██████╗  ██████╗      ██╗${CYAN}║${NC}"
+    echo -e "${CYAN}║${PURPLE}   ██╔════╝██╔════╝  ██╔══██╗██╔══██╗██╔═══██╗     ██║${CYAN}║${NC}"
+    echo -e "${CYAN}║${PURPLE}   ██║     █████╗    ██████╔╝██████╔╝██║   ██║     ██║${CYAN}║${NC}"
+    echo -e "${CYAN}║${PURPLE}   ██║     ██╔══╝    ██╔═══╝ ██╔══██╗██║   ██║██   ██║${CYAN}║${NC}"
+    echo -e "${CYAN}║${PURPLE}   ╚██████╗██║       ██║     ██║  ██║╚██████╔╝╚█████╔╝${CYAN}║${NC}"
+    echo -e "${CYAN}║${PURPLE}    ╚═════╝╚═╝       ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ${CYAN}║${NC}"
+    echo -e "${CYAN}║${YELLOW}        CLOUDFLARE ENGINE MANAGER v35 (MULTI-ACCOUNT)         ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
-    echo -e " ${WHITE}👤 Active Account :${NC} ${GREEN}$CF_EMAIL${NC}"
+    echo -e " ${WHITE}👤 Active Account :${NC} ${GREEN}${CF_EMAIL:-Belum Set}${NC}"
+    echo -e " ${WHITE}🆔 Account ID     :${NC} ${YELLOW}${ACCOUNT_ID:-Belum Set}${NC}"
     echo -e " ${WHITE}📁 Folder Script   :${NC} ${YELLOW}$SCCF_DIR${NC}"
     echo -e "${CYAN}----------------------------------------------------------------${NC}"
 }
 
-login_flow() {
-    clear
-    echo -e "${CYAN}====== CLOUDFLARE AUTHENTICATION ======${NC}"
-    if [ -f "$CONFIG_FILE" ] && [ -z "$FORCE_RELOGIN" ]; then
-        source "$CONFIG_FILE"
-        echo -e "${YELLOW}🔐 Ditemukan akun tersimpan:${NC} ${GREEN}$CF_EMAIL${NC}"
-        read -rp "Gunakan kredensial ini? [Y/n]: " USE_SAVED
-        if [[ "$USE_SAVED" =~ ^[Nn] ]]; then
-            unset CF_EMAIL CF_API_KEY
-        fi
-    fi
+save_account_to_json() {
+    local email="$1"
+    local key="$2"
+    local acc_id="$3"
 
-    if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
-        echo ""
-        read -rp "✉️  Email CF      : " CF_EMAIL
-        # FLAG -s DIHAPUS BIAR TEKS API KEY KELIATAN PAS DIKETIK / DIPASTE
-        read -rp "🔑 Global API Key: " CF_API_KEY
-        echo ""
-        read -rp "💾 Simpan kredensial? [y/N]: " SAVE_CHOICE
-        if [[ "$SAVE_CHOICE" =~ ^[Yy] ]]; then
-            save_credentials
-        fi
-    fi
-
-    AUTH_HEADER=(-H "X-Auth-Email: $CF_EMAIL" -H "X-Auth-Key: $CF_API_KEY")
-    BASE_URL="https://api.cloudflare.com/client/v4"
-
-    echo -e "\n${YELLOW}📂 Verifikasi Account ID...${NC}"
-    MEMBERSHIPS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/memberships")
-    ACCOUNT_ID=$(echo "$MEMBERSHIPS_JSON" | jq -r '.result[0].account.id // empty')
-
-    if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" == "null" ]; then
-        ACCOUNTS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/accounts")
-        ACCOUNT_ID=$(echo "$ACCOUNTS_JSON" | jq -r '.result[0].id // empty')
-    fi
-
-    if [ -z "$ACCOUNT_ID" ] || [ "$ACCOUNT_ID" == "null" ]; then
-        echo -e "${RED}❌ Gagal mendeteksi Account ID. Periksa Email/API Key!${NC}"
-        unset CF_EMAIL CF_API_KEY
-        read -rp "Tekan Enter untuk mencoba lagi..."
-        login_flow
-    fi
-    echo -e "${GREEN}✅ Login Berhasil! (ID: $ACCOUNT_ID)${NC}"
-    sleep 1
-    unset FORCE_RELOGIN
+    # Hapus entry lama kalau emailnya sama, lalu tambahkan yang baru
+    tmp=$(mktemp)
+    jq --arg email "$email" --arg key "$key" --arg id "$acc_id" \
+       'map(select(.email != $email)) + [{"email": $email, "api_key": $key, "account_id": $id}]' \
+       "$ACCOUNTS_FILE" > "$tmp" && mv "$tmp" "$ACCOUNTS_FILE"
+    
+    chmod 600 "$ACCOUNTS_FILE"
 }
 
-login_flow
+set_active_account() {
+    CF_EMAIL="$1"
+    CF_API_KEY="$2"
+    ACCOUNT_ID="$3"
+
+    echo "{\"email\":\"$CF_EMAIL\",\"api_key\":\"$CF_API_KEY\",\"account_id\":\"$ACCOUNT_ID\"}" > "$ACTIVE_ACC_FILE"
+    chmod 600 "$ACTIVE_ACC_FILE"
+}
+
+verify_and_login() {
+    local email="$1"
+    local key="$2"
+
+    echo -e "\n${YELLOW}📂 Verifikasi Account ID untuk $email...${NC}"
+    AUTH_HEADER=(-H "X-Auth-Email: $email" -H "X-Auth-Key: $key")
+    BASE_URL="https://api.cloudflare.com/client/v4"
+
+    MEMBERSHIPS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/memberships")
+    DETECTED_ID=$(echo "$MEMBERSHIPS_JSON" | jq -r '.result[0].account.id // empty')
+
+    if [ -z "$DETECTED_ID" ] || [ "$DETECTED_ID" == "null" ]; then
+        ACCOUNTS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/accounts")
+        DETECTED_ID=$(echo "$ACCOUNTS_JSON" | jq -r '.result[0].id // empty')
+    fi
+
+    if [ -z "$DETECTED_ID" ] || [ "$DETECTED_ID" == "null" ]; then
+        echo -e "${RED}❌ Gagal mendeteksi Account ID. Periksa Email/API Key!${NC}"
+        return 1
+    fi
+
+    save_account_to_json "$email" "$key" "$DETECTED_ID"
+    set_active_account "$email" "$key" "$DETECTED_ID"
+
+    echo -e "${GREEN}✅ Login Berhasil! (ID: $DETECTED_ID)${NC}"
+    sleep 1
+    return 0
+}
+
+add_new_account() {
+    clear
+    echo -e "${CYAN}====== TAMBAH AKUN CLOUDFLARE BARU ======${NC}\n"
+    read -rp "✉️  Email CF      : " NEW_EMAIL
+    read -rp "🔑 Global API Key: " NEW_KEY
+    echo ""
+
+    if [ -z "$NEW_EMAIL" ] || [ -z "$NEW_KEY" ]; then
+        echo -e "${RED}❌ Email dan API Key tidak boleh kosong!${NC}"
+        sleep 1.5
+        return
+    fi
+
+    if verify_and_login "$NEW_EMAIL" "$NEW_KEY"; then
+        echo -e "${GREEN}💾 Akun $NEW_EMAIL berhasil ditambahkan dan diaktifkan!${NC}"
+    else
+        echo -e "${RED}❌ Gagal menambahkan akun.${NC}"
+    fi
+    sleep 1.5
+}
+
+delete_account_menu() {
+    clear
+    echo -e "${CYAN}====== HAPUS AKUN TERPANTAU ======${NC}\n"
+    
+    count=$(jq '. | length' "$ACCOUNTS_FILE")
+    if [ "$count" -eq 0 ]; then
+        echo -e "${YELLOW}⚠️ Tidak ada akun yang tersimpan.${NC}"
+        sleep 1.5
+        return
+    fi
+
+    for i in $(seq 0 $((count - 1))); do
+        acc_email=$(jq -r ".[$i].email" "$ACCOUNTS_FILE")
+        echo -e "  ${CYAN}[$((i+1))]${NC} $acc_email"
+    done
+    echo -e "\n  ${RED}[0] Batal${NC}"
+    echo ""
+    read -rp " Pilih nomor akun yang ingin dihapus: " DEL_CHOICE
+
+    if [[ "$DEL_CHOICE" =~ ^[0-9]+$ ]] && [ "$DEL_CHOICE" -ge 1 ] && [ "$DEL_CHOICE" -le "$count" ]; then
+        TARGET_EMAIL=$(jq -r ".[$((DEL_CHOICE-1))].email" "$ACCOUNTS_FILE")
+        
+        tmp=$(mktemp)
+        jq --arg email "$TARGET_EMAIL" 'map(select(.email != $email))' "$ACCOUNTS_FILE" > "$tmp" && mv "$tmp" "$ACCOUNTS_FILE"
+        echo -e "${GREEN}🗑️ Akun $TARGET_EMAIL berhasil dihapus!${NC}"
+
+        # Jika akun yang dihapus adalah akun aktif
+        if [ "$TARGET_EMAIL" == "$CF_EMAIL" ]; then
+            rm -f "$ACTIVE_ACC_FILE"
+            unset CF_EMAIL CF_API_KEY ACCOUNT_ID
+        fi
+    fi
+    sleep 1.5
+}
+
+account_switch_menu() {
+    while true; do
+        clear
+        echo -e "${CYAN}====== MANAJEMEN & SWITCH AKUN ======${NC}\n"
+
+        count=$(jq '. | length' "$ACCOUNTS_FILE")
+        
+        if [ "$count" -gt 0 ]; then
+            echo -e "${WHITE}Daftar Akun Tersimpan:${NC}"
+            for i in $(seq 0 $((count - 1))); do
+                acc_email=$(jq -r ".[$i].email" "$ACCOUNTS_FILE")
+                if [ "$acc_email" == "$CF_EMAIL" ]; then
+                    echo -e "  ${GREEN}[$((i+1))] $acc_email (Aktif)${NC}"
+                else
+                    echo -e "  ${CYAN}[$((i+1))]${NC} $acc_email"
+                fi
+            done
+            echo ""
+        else
+            echo -e "${YELLOW}⚠️ Belum ada akun yang tersimpan.${NC}\n"
+        fi
+
+        echo -e "  ${GREEN}[+] Tambah Akun Baru${NC}"
+        if [ "$count" -gt 0 ]; then
+            echo -e "  ${RED}[-] Hapus Akun Tersimpan${NC}"
+        fi
+        echo -e "  ${YELLOW}[0] Kembali ke Menu Utama${NC}"
+        echo ""
+        read -rp " Pilih Opsi: " ACC_CHOICE
+
+        if [ "$ACC_CHOICE" == "+" ]; then
+            add_new_account
+            break
+        elif [ "$ACC_CHOICE" == "-" ] && [ "$count" -gt 0 ]; then
+            delete_account_menu
+        elif [ "$ACC_CHOICE" == "0" ]; then
+            break
+        elif [[ "$ACC_CHOICE" =~ ^[0-9]+$ ]] && [ "$ACC_CHOICE" -ge 1 ] && [ "$ACC_CHOICE" -le "$count" ]; then
+            SELECTED_INDEX=$((ACC_CHOICE - 1))
+            SEL_EMAIL=$(jq -r ".[$SELECTED_INDEX].email" "$ACCOUNTS_FILE")
+            SEL_KEY=$(jq -r ".[$SELECTED_INDEX].api_key" "$ACCOUNTS_FILE")
+            
+            echo -e "${YELLOW}🔄 Mengalihkan ke akun: $SEL_EMAIL...${NC}"
+            if verify_and_login "$SEL_EMAIL" "$SEL_KEY"; then
+                echo -e "${GREEN}✅ Berhasil switch akun!${NC}"
+            fi
+            sleep 1
+            break
+        else
+            echo -e "${RED}❌ Pilihan tidak valid!${NC}"
+            sleep 1
+        fi
+    done
+}
+
+init_auth() {
+    # 1. Cek file active account dulu
+    if [ -f "$ACTIVE_ACC_FILE" ]; then
+        CF_EMAIL=$(jq -r '.email // empty' "$ACTIVE_ACC_FILE")
+        CF_API_KEY=$(jq -r '.api_key // empty' "$ACTIVE_ACC_FILE")
+        ACCOUNT_ID=$(jq -r '.account_id // empty' "$ACTIVE_ACC_FILE")
+    fi
+
+    # 2. Kalau belum ada akun aktif, cek daftar akun tersimpan
+    if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
+        count=$(jq '. | length' "$ACCOUNTS_FILE")
+        if [ "$count" -gt 0 ]; then
+            CF_EMAIL=$(jq -r '.[0].email' "$ACCOUNTS_FILE")
+            CF_API_KEY=$(jq -r '.[0].api_key' "$ACCOUNTS_FILE")
+            ACCOUNT_ID=$(jq -r '.[0].account_id' "$ACCOUNTS_FILE")
+            set_active_account "$CF_EMAIL" "$CF_API_KEY" "$ACCOUNT_ID"
+        fi
+    fi
+
+    # 3. Kalau tetap kosong, minta tambah akun baru
+    if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
+        echo -e "${YELLOW}⚠️ Belum ada akun Cloudflare terkonfigurasi.${NC}"
+        sleep 1
+        add_new_account
+    fi
+}
+
+# Jalankan Inisialisasi
+init_auth
 
 while true; do
     draw_banner
@@ -106,13 +251,11 @@ while true; do
     MODULE_ACTIONS=()
     index=1
 
-    # 1. BACA & IMPORT SEMUA FILE .sh DI FOLDER modules/ DENGAN NAMA BEBAS
+    # BACA & IMPORT SEMUA FILE .sh DI FOLDER modules/
     shopt -s nullglob
     for mod_file in "$MODULES_DIR"/*.sh; do
-        # Import seluruh isi fungsi file modul
         source "$mod_file"
 
-        # Baca judul & nama fungsi dari header komentar di dalam file
         TITLE=$(grep -m1 "^# MENU_TITLE:" "$mod_file" | cut -d':' -f2- | sed 's/^[[:space:]]*//')
         ACTION=$(grep -m1 "^# MENU_ACTION:" "$mod_file" | cut -d':' -f2- | sed 's/^[[:space:]]*//')
 
@@ -129,23 +272,19 @@ while true; do
     fi
 
     echo ""
-    echo -e "  ${YELLOW}[00]${NC}🔄 ${YELLOW}Switch / Ganti Akun Cloudflare${NC}"
+    echo -e "  ${YELLOW}[00]${NC} 🔄 ${YELLOW}Switch / Kelola Akun Cloudflare${NC}"
     echo -e "  ${RED}[e]${NC}  🚪 ${RED}Keluar dari Script${NC}"
     echo ""
     echo -e "${CYAN}----------------------------------------------------------------${NC}"
-    read -rp " Pilih Menu [1-$((index-1)) / e]: " MAIN_CHOICE
+    read -rp " Pilih Menu: " MAIN_CHOICE
     echo ""
 
     if [ "$MAIN_CHOICE" == "00" ]; then
-        echo -e "${YELLOW}🔄 Mengganti Akun Cloudflare...${NC}"
-        unset CF_EMAIL CF_API_KEY ACCOUNT_ID
-        FORCE_RELOGIN=true
-        login_flow
+        account_switch_menu
     elif [ "$MAIN_CHOICE" == "e" ] || [ "$MAIN_CHOICE" == "E" ]; then
         echo -e "${GREEN}👋 Terima kasih bos! Keluar dari Cloudflare Manager Pro.${NC}"
         exit 0
     elif [[ "$MAIN_CHOICE" =~ ^[0-9]+$ ]] && [ "$MAIN_CHOICE" -ge 1 ] && [ "$MAIN_CHOICE" -lt "$index" ]; then
-        # Eksekusi fungsi sesuai nomor pilihan
         TARGET_ACTION="${MODULE_ACTIONS[$((MAIN_CHOICE-1))]}"
         $TARGET_ACTION
     else
