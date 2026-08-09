@@ -1,11 +1,12 @@
 #!/bin/bash
 
 #=============================================================
-# Cloudflare Manager Pro (Multi-Account & Auto-Update v36)
-# Banner Updated: CF PROJECT
+# Cloudflare Manager Pro (Multi-Account & Auto-Update v37)
+# Banner: CF PROJECT
 #=============================================================
 
-set -e
+# HAPUS set -e AGAR SCRIPT GAK CRASH KE TERMINAL KALAU ADA COMMAND ERROR
+set +e
 
 ACCOUNTS_FILE="$HOME/.cf-accounts.json"
 ACTIVE_ACC_FILE="$HOME/.cf-active-account.json"
@@ -14,7 +15,6 @@ MODULES_DIR="$PWD/modules"
 
 mkdir -p "$SCCF_DIR" "$MODULES_DIR"
 
-# Inisialisasi file akun jika belum ada
 if [ ! -f "$ACCOUNTS_FILE" ]; then
     echo "[]" > "$ACCOUNTS_FILE"
 fi
@@ -43,12 +43,19 @@ draw_banner() {
     echo -e "${CYAN}║${PURPLE}   ██║     ██╔══╝    ██╔═══╝ ██╔══██╗██║   ██║██   ██║${CYAN}║${NC}"
     echo -e "${CYAN}║${PURPLE}   ╚██████╗██║       ██║     ██║  ██║╚██████╔╝╚█████╔╝${CYAN}║${NC}"
     echo -e "${CYAN}║${PURPLE}    ╚═════╝╚═╝       ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ${CYAN}║${NC}"
-    echo -e "${CYAN}║${YELLOW}        CLOUDFLARE ENGINE MANAGER v36 (MULTI-ACCOUNT)         ${CYAN}║${NC}"
+    echo -e "${CYAN}║${YELLOW}        CLOUDFLARE ENGINE MANAGER v37 (MULTI-ACCOUNT)         ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo -e " ${WHITE}👤 Active Account :${NC} ${GREEN}${CF_EMAIL:-Belum Set}${NC}"
     echo -e " ${WHITE}🆔 Account ID     :${NC} ${YELLOW}${ACCOUNT_ID:-Belum Set}${NC}"
     echo -e " ${WHITE}📁 Folder Script   :${NC} ${YELLOW}$SCCF_DIR${NC}"
     echo -e "${CYAN}----------------------------------------------------------------${NC}"
+}
+
+# SETUP VARIABEL GLOBAL UNTUK DIGUNAKAN DI MODUL
+export BASE_URL="https://api.cloudflare.com/client/v4"
+
+update_auth_header() {
+    export AUTH_HEADER=(-H "X-Auth-Email: $CF_EMAIL" -H "X-Auth-Key: $CF_API_KEY")
 }
 
 save_account_to_json() {
@@ -69,6 +76,8 @@ set_active_account() {
     CF_API_KEY="$2"
     ACCOUNT_ID="$3"
 
+    update_auth_header
+
     echo "{\"email\":\"$CF_EMAIL\",\"api_key\":\"$CF_API_KEY\",\"account_id\":\"$ACCOUNT_ID\"}" > "$ACTIVE_ACC_FILE"
     chmod 600 "$ACTIVE_ACC_FILE"
 }
@@ -78,15 +87,14 @@ verify_and_login() {
     local key="$2"
 
     echo -e "\n${YELLOW}📂 Verifikasi Account ID untuk $email...${NC}"
-    AUTH_HEADER=(-H "X-Auth-Email: $email" -H "X-Auth-Key: $key")
-    BASE_URL="https://api.cloudflare.com/client/v4"
+    TEMP_HEADER=(-H "X-Auth-Email: $email" -H "X-Auth-Key: $key")
 
-    MEMBERSHIPS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/memberships")
-    DETECTED_ID=$(echo "$MEMBERSHIPS_JSON" | jq -r '.result[0].account.id // empty')
+    MEMBERSHIPS_JSON=$(curl -s "${TEMP_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/memberships" || echo "")
+    DETECTED_ID=$(echo "$MEMBERSHIPS_JSON" | jq -r '.result[0].account.id // empty' 2>/dev/null)
 
     if [ -z "$DETECTED_ID" ] || [ "$DETECTED_ID" == "null" ]; then
-        ACCOUNTS_JSON=$(curl -s "${AUTH_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/accounts")
-        DETECTED_ID=$(echo "$ACCOUNTS_JSON" | jq -r '.result[0].id // empty')
+        ACCOUNTS_JSON=$(curl -s "${TEMP_HEADER[@]}" -H "Content-Type: application/json" "$BASE_URL/accounts" || echo "")
+        DETECTED_ID=$(echo "$ACCOUNTS_JSON" | jq -r '.result[0].id // empty' 2>/dev/null)
     fi
 
     if [ -z "$DETECTED_ID" ] || [ "$DETECTED_ID" == "null" ]; then
@@ -127,7 +135,7 @@ delete_account_menu() {
     clear
     echo -e "${CYAN}====== HAPUS AKUN TERPANTAU ======${NC}\n"
     
-    count=$(jq '. | length' "$ACCOUNTS_FILE")
+    count=$(jq '. | length' "$ACCOUNTS_FILE" 2>/dev/null || echo "0")
     if [ "$count" -eq 0 ]; then
         echo -e "${YELLOW}⚠️ Tidak ada akun yang tersimpan.${NC}"
         sleep 1.5
@@ -151,7 +159,7 @@ delete_account_menu() {
 
         if [ "$TARGET_EMAIL" == "$CF_EMAIL" ]; then
             rm -f "$ACTIVE_ACC_FILE"
-            unset CF_EMAIL CF_API_KEY ACCOUNT_ID
+            unset CF_EMAIL CF_API_KEY ACCOUNT_ID AUTH_HEADER
         fi
     fi
     sleep 1.5
@@ -162,7 +170,7 @@ account_switch_menu() {
         clear
         echo -e "${CYAN}====== MANAJEMEN & SWITCH AKUN ======${NC}\n"
 
-        count=$(jq '. | length' "$ACCOUNTS_FILE")
+        count=$(jq '. | length' "$ACCOUNTS_FILE" 2>/dev/null || echo "0")
         
         if [ "$count" -gt 0 ]; then
             echo -e "${WHITE}Daftar Akun Tersimpan:${NC}"
@@ -219,18 +227,14 @@ update_script() {
         echo -e "${YELLOW}🔄 Menarik pembaruan dari repositori...${NC}"
         git fetch origin
         
-        # Deteksi branch utama (main atau master)
         BRANCH=$(git branch -r | grep -E 'origin/(main|master)' | head -n 1 | sed 's/origin\///' | tr -d ' ')
-        if [ -z "$BRANCH" ]; then
-            BRANCH="main"
-        fi
+        [ -z "$BRANCH" ] && BRANCH="main"
 
         git reset --hard "origin/$BRANCH"
         echo -e "\n${GREEN}✅ Script berhasil diperbarui ke versi terbaru!${NC}"
         echo -e "${YELLOW}🔄 Silakan jalankan ulang script-nya.${NC}"
     else
         echo -e "${RED}❌ Direktori ini tidak di-clone via Git.${NC}"
-        echo -e "${YELLOW}Silakan lakukan 'git clone' ulang dari GitHub kamu.${NC}"
     fi
     sleep 2
     exit 0
@@ -241,10 +245,11 @@ init_auth() {
         CF_EMAIL=$(jq -r '.email // empty' "$ACTIVE_ACC_FILE")
         CF_API_KEY=$(jq -r '.api_key // empty' "$ACTIVE_ACC_FILE")
         ACCOUNT_ID=$(jq -r '.account_id // empty' "$ACTIVE_ACC_FILE")
+        update_auth_header
     fi
 
     if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
-        count=$(jq '. | length' "$ACCOUNTS_FILE")
+        count=$(jq '. | length' "$ACCOUNTS_FILE" 2>/dev/null || echo "0")
         if [ "$count" -gt 0 ]; then
             CF_EMAIL=$(jq -r '.[0].email' "$ACCOUNTS_FILE")
             CF_API_KEY=$(jq -r '.[0].api_key' "$ACCOUNTS_FILE")
@@ -253,13 +258,14 @@ init_auth() {
         fi
     fi
 
-    if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
-        echo -e "${YELLOW}⚠️ Belum ada akun Cloudflare terkonfigurasi.${NC}"
+    while [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ] || [ -z "$ACCOUNT_ID" ]; do
+        echo -e "${YELLOW}⚠️ Belum ada akun Cloudflare aktif terkonfigurasi.${NC}"
         sleep 1
         add_new_account
-    fi
+    done
 }
 
+# INISIALISASI WAJIB ADA AKUN AKTIF
 init_auth
 
 while true; do
