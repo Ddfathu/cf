@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #=============================================================
-# Cloudflare Manager Pro (Multi-Account & Auto-Import v35)
+# Cloudflare Manager Pro (Multi-Account & Auto-Update v36)
 # Banner Updated: CF PROJECT
 #=============================================================
 
@@ -43,7 +43,7 @@ draw_banner() {
     echo -e "${CYAN}║${PURPLE}   ██║     ██╔══╝    ██╔═══╝ ██╔══██╗██║   ██║██   ██║${CYAN}║${NC}"
     echo -e "${CYAN}║${PURPLE}   ╚██████╗██║       ██║     ██║  ██║╚██████╔╝╚█████╔╝${CYAN}║${NC}"
     echo -e "${CYAN}║${PURPLE}    ╚═════╝╚═╝       ╚═╝     ╚═╝  ╚═╝ ╚═════╝  ╚════╝ ${CYAN}║${NC}"
-    echo -e "${CYAN}║${YELLOW}        CLOUDFLARE ENGINE MANAGER v35 (MULTI-ACCOUNT)         ${CYAN}║${NC}"
+    echo -e "${CYAN}║${YELLOW}        CLOUDFLARE ENGINE MANAGER v36 (MULTI-ACCOUNT)         ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo -e " ${WHITE}👤 Active Account :${NC} ${GREEN}${CF_EMAIL:-Belum Set}${NC}"
     echo -e " ${WHITE}🆔 Account ID     :${NC} ${YELLOW}${ACCOUNT_ID:-Belum Set}${NC}"
@@ -56,7 +56,6 @@ save_account_to_json() {
     local key="$2"
     local acc_id="$3"
 
-    # Hapus entry lama kalau emailnya sama, lalu tambahkan yang baru
     tmp=$(mktemp)
     jq --arg email "$email" --arg key "$key" --arg id "$acc_id" \
        'map(select(.email != $email)) + [{"email": $email, "api_key": $key, "account_id": $id}]' \
@@ -150,7 +149,6 @@ delete_account_menu() {
         jq --arg email "$TARGET_EMAIL" 'map(select(.email != $email))' "$ACCOUNTS_FILE" > "$tmp" && mv "$tmp" "$ACCOUNTS_FILE"
         echo -e "${GREEN}🗑️ Akun $TARGET_EMAIL berhasil dihapus!${NC}"
 
-        # Jika akun yang dihapus adalah akun aktif
         if [ "$TARGET_EMAIL" == "$CF_EMAIL" ]; then
             rm -f "$ACTIVE_ACC_FILE"
             unset CF_EMAIL CF_API_KEY ACCOUNT_ID
@@ -214,15 +212,37 @@ account_switch_menu() {
     done
 }
 
+update_script() {
+    clear
+    echo -e "${CYAN}====== UPDATE SCRIPT DARI GITHUB ======${NC}\n"
+    if [ -d ".git" ]; then
+        echo -e "${YELLOW}🔄 Menarik pembaruan dari repositori...${NC}"
+        git fetch origin
+        
+        # Deteksi branch utama (main atau master)
+        BRANCH=$(git branch -r | grep -E 'origin/(main|master)' | head -n 1 | sed 's/origin\///' | tr -d ' ')
+        if [ -z "$BRANCH" ]; then
+            BRANCH="main"
+        fi
+
+        git reset --hard "origin/$BRANCH"
+        echo -e "\n${GREEN}✅ Script berhasil diperbarui ke versi terbaru!${NC}"
+        echo -e "${YELLOW}🔄 Silakan jalankan ulang script-nya.${NC}"
+    else
+        echo -e "${RED}❌ Direktori ini tidak di-clone via Git.${NC}"
+        echo -e "${YELLOW}Silakan lakukan 'git clone' ulang dari GitHub kamu.${NC}"
+    fi
+    sleep 2
+    exit 0
+}
+
 init_auth() {
-    # 1. Cek file active account dulu
     if [ -f "$ACTIVE_ACC_FILE" ]; then
         CF_EMAIL=$(jq -r '.email // empty' "$ACTIVE_ACC_FILE")
         CF_API_KEY=$(jq -r '.api_key // empty' "$ACTIVE_ACC_FILE")
         ACCOUNT_ID=$(jq -r '.account_id // empty' "$ACTIVE_ACC_FILE")
     fi
 
-    # 2. Kalau belum ada akun aktif, cek daftar akun tersimpan
     if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
         count=$(jq '. | length' "$ACCOUNTS_FILE")
         if [ "$count" -gt 0 ]; then
@@ -233,7 +253,6 @@ init_auth() {
         fi
     fi
 
-    # 3. Kalau tetap kosong, minta tambah akun baru
     if [ -z "$CF_EMAIL" ] || [ -z "$CF_API_KEY" ]; then
         echo -e "${YELLOW}⚠️ Belum ada akun Cloudflare terkonfigurasi.${NC}"
         sleep 1
@@ -241,7 +260,6 @@ init_auth() {
     fi
 }
 
-# Jalankan Inisialisasi
 init_auth
 
 while true; do
@@ -251,7 +269,6 @@ while true; do
     MODULE_ACTIONS=()
     index=1
 
-    # BACA & IMPORT SEMUA FILE .sh DI FOLDER modules/
     shopt -s nullglob
     for mod_file in "$MODULES_DIR"/*.sh; do
         source "$mod_file"
@@ -273,6 +290,7 @@ while true; do
 
     echo ""
     echo -e "  ${YELLOW}[00]${NC} 🔄 ${YELLOW}Switch / Kelola Akun Cloudflare${NC}"
+    echo -e "  ${YELLOW}[99]${NC} 🚀 ${YELLOW}Update Script (Git Pull)${NC}"
     echo -e "  ${RED}[e]${NC}  🚪 ${RED}Keluar dari Script${NC}"
     echo ""
     echo -e "${CYAN}----------------------------------------------------------------${NC}"
@@ -281,8 +299,10 @@ while true; do
 
     if [ "$MAIN_CHOICE" == "00" ]; then
         account_switch_menu
+    elif [ "$MAIN_CHOICE" == "99" ]; then
+        update_script
     elif [ "$MAIN_CHOICE" == "e" ] || [ "$MAIN_CHOICE" == "E" ]; then
-        echo -e "${GREEN}👋 Terima kasih bos! Keluar dari Cloudflare Manager Pro.${NC}"
+        echo -e "${GREEN}👋 Terima kasih bos! Keluar dari CF PROJECT.${NC}"
         exit 0
     elif [[ "$MAIN_CHOICE" =~ ^[0-9]+$ ]] && [ "$MAIN_CHOICE" -ge 1 ] && [ "$MAIN_CHOICE" -lt "$index" ]; then
         TARGET_ACTION="${MODULE_ACTIONS[$((MAIN_CHOICE-1))]}"
